@@ -1,0 +1,45 @@
+{
+  "Comment": "Day 3: Glue clean -> crawl curated -> Athena query",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "RunCleaningJob",
+  "States": {
+    "RunCleaningJob": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": { "JobName": "clean-raw-to-curated" },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "PipelineFailed" }],
+      "Next": "StartCuratedCrawler"
+    },
+    "StartCuratedCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": { "Name": "curated-crawler" },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "PipelineFailed" }],
+      "Next": "WaitForCrawler"
+    },
+    "WaitForCrawler": {
+      "Type": "Wait",
+      "Seconds": 180,
+      "Next": "RunAthenaQuery"
+    },
+    "RunAthenaQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString": "SELECT make, COUNT(*) AS vehicles FROM \"ev-db\".\"curated\" GROUP BY make ORDER BY vehicles DESC LIMIT 10",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://mohanshi-mini-datalake-2026/athena-results/"
+        }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "PipelineFailed" }],
+      "Next": "PipelineSucceeded"
+    },
+    "PipelineSucceeded": { "Type": "Succeed" },
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Error": "PipelineError",
+      "Cause": "A step failed. Check the execution history for the failing state."
+    }
+  }
+}
