@@ -1,0 +1,70 @@
+{
+  "Comment": "Day 4: validate -> clean -> crawl -> query, with failure alerts",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "ValidateRawFile",
+  "States": {
+    "ValidateRawFile": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "ev-quality-check",
+        "Payload.$": "$"
+      },
+      "ResultSelector": { "input_path.$": "$.Payload.input_path" },
+      "ResultPath": "$",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "RunCleaningJob"
+    },
+    "RunCleaningJob": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "clean-raw-to-curated",
+        "Arguments": { "--INPUT_PATH.$": "$.input_path" }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "NotifyFailure" }],
+      "Next": "StartCuratedCrawler"
+    },
+    "StartCuratedCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": { "Name": "curated-crawler" },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "NotifyFailure" }],
+      "Next": "WaitForCrawler"
+    },
+    "WaitForCrawler": {
+      "Type": "Wait",
+      "Seconds": 180,
+      "Next": "RunAthenaQuery"
+    },
+    "RunAthenaQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString": "SELECT make, COUNT(*) AS vehicles FROM \"ev-db\".\"curated\" GROUP BY make ORDER BY vehicles DESC LIMIT 10",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://mohanshi-mini-datalake-2026/athena-results/"
+        }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "NotifyFailure" }],
+      "Next": "PipelineSucceeded"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:us-east-1:203918853119:ev-pipeline-alerts",
+        "Subject": "EV pipeline FAILED",
+        "Message.$": "States.JsonToString($)"
+      },
+      "Next": "PipelineFailed"
+    },
+    "PipelineSucceeded": { "Type": "Succeed" },
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Error": "PipelineError",
+      "Cause": "A step failed. The alert email contains the error details."
+    }
+  }
+}
