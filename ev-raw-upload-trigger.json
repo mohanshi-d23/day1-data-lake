@@ -1,0 +1,8 @@
+{
+  "source": ["aws.s3"],
+  "detail-type": ["Object Created"],
+  "detail": {
+    "bucket": { "name": ["mohanshi-mini-datalake-2026"] },
+    "object": { "key": [{ "prefix": "raw/" }] }
+  }
+}

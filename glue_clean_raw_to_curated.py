@@ -7,21 +7,34 @@ from awsglue.job import Job
 from pyspark.context import SparkContext
 from pyspark.sql import functions as F
 
-args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+# args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+args = getResolvedOptions(sys.argv, ["JOB_NAME", "INPUT_PATH"])
 sc = SparkContext()
 glue_context = GlueContext(sc)
 spark = glue_context.spark_session
 job = Job(glue_context)
 job.init(args["JOB_NAME"], args)
 
-DATABASE = "ev-db"
-RAW_TABLE = "raw"
+# DATABASE = "ev-db"
+# RAW_TABLE = "raw"
+# OUTPUT = "s3://mohanshi-mini-datalake-2026/curated/"
+
+# # Read the raw table through the Data Catalog
+# df = glue_context.create_dynamic_frame.from_catalog(
+#     database=DATABASE, table_name=RAW_TABLE
+# ).toDF()
+# print(f"Raw rows: {df.count()}")
+
 OUTPUT = "s3://mohanshi-mini-datalake-2026/curated/"
 
-# Read the raw table through the Data Catalog
-df = glue_context.create_dynamic_frame.from_catalog(
-    database=DATABASE, table_name=RAW_TABLE
-).toDF()
+# Read the file passed in by Step Functions (--INPUT_PATH)
+df = (
+    spark.read.option("header", "true")
+         .option("quote", '"')
+         .option("escape", '"')
+         .option("multiLine", "true")
+         .csv(args["INPUT_PATH"])
+)
 print(f"Raw rows: {df.count()}")
 
 # 1. Rename columns to snake_case, handling spaces, brackets, and hyphens
